@@ -1,0 +1,282 @@
+<?php
+
+namespace MyNamespace;
+
+use Doctrine\DBAL\Cache\QueryCacheProfile;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\DBALException;
+
+/**
+ * Class RetryConnection
+ */
+class RetryConnection extends Connection
+{
+    const GONE_AWAY_MESSAGE = 'MySQL server has gone away';
+
+    /**
+     * Try only once if it fails
+     *
+     * @param callable $callback
+     *
+     * @return mixed
+     */
+    private function retryOnServerGoneAway(callable $callback)
+    {
+        try {
+            return $callback();
+        } catch (DBALException $ex) {
+            if (strpos($ex->getPrevious()->getMessage(), self::GONE_AWAY_MESSAGE) !== false) {
+                $this->close();
+                $this->connect();
+
+                return $callback($ex);
+            }
+        }
+    }
+
+    /**
+     * Executes an, optionally parametrized, SQL query.
+     *
+     * If the query is parametrized, a prepared statement is used.
+     * If an SQLLogger is configured, the execution is logged.
+     *
+     * @param string                                      $query  The SQL query to execute.
+     * @param array                                       $params The parameters to bind to the query, if any.
+     * @param array                                       $types  The types the previous parameters are in.
+     * @param \Doctrine\DBAL\Cache\QueryCacheProfile|null $qcp    The query cache profile, optional.
+     *
+     * @return \Doctrine\DBAL\Driver\Statement The executed statement.
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     *
+     * @internal PERF: Directly prepares a driver statement, not a wrapper.
+     */
+    public function executeQuery($query, array $params = [], $types = [], QueryCacheProfile $qcp = null)
+    {
+        return $this->retryOnServerGoneAway(function () use ($query, $params, $types, $qcp) {
+            return parent::executeQuery($query, $params, $types, $qcp);
+        });
+    }
+
+    /**
+     * Executes an SQL DELETE statement on a table.
+     *
+     * @param string $tableName  The name of the table on which to delete.
+     * @param array  $identifier The deletion criteria. An associative array containing column-value pairs.
+     * @param array  $types      The types of identifiers.
+     *
+     * @return integer The number of affected rows.
+     */
+    public function delete($tableName, array $identifier, array $types = [])
+    {
+        return $this->retryOnServerGoneAway(function () use ($tableName, $identifier, $types) {
+            return parent::delete($tableName, $identifier, $types);
+        });
+    }
+
+    /**
+     * Executes an SQL UPDATE statement on a table.
+     *
+     * @param string $tableName  The name of the table to update.
+     * @param array  $data       An associative array containing column-value pairs.
+     * @param array  $identifier The update criteria. An associative array containing column-value pairs.
+     * @param array  $types      Types of the merged $data and $identifier arrays in that order.
+     *
+     * @return integer The number of affected rows.
+     */
+    public function update($tableName, array $data, array $identifier, array $types = [])
+    {
+        return $this->retryOnServerGoneAway(function () use ($tableName, $data, $identifier, $types) {
+            return parent::update($tableName, $data, $identifier, $types);
+        });
+    }
+
+    /**
+     * Inserts a table row with specified data.
+     *
+     * @param string $tableName The name of the table to insert data into.
+     * @param array  $data      An associative array containing column-value pairs.
+     * @param array  $types     Types of the inserted data.
+     *
+     * @return integer The number of affected rows.
+     */
+    public function insert($tableName, array $data, array $types = [])
+    {
+        return $this->retryOnServerGoneAway(function () use ($tableName, $data, $types) {
+            return parent::insert($tableName, $data, $types);
+        });
+    }
+
+    /**
+     * Quotes a given input parameter.
+     *
+     * @param mixed       $input The parameter to be quoted.
+     * @param string|null $type  The type of the parameter.
+     *
+     * @return string The quoted parameter.
+     */
+    public function quote($input, $type = null)
+    {
+        return $this->retryOnServerGoneAway(function () use ($input, $type) {
+            return parent::quote($input, $type);
+        });
+    }
+
+    /**
+     * Prepares an SQL statement.
+     *
+     * @param string $statement The SQL statement to prepare.
+     *
+     * @return \Doctrine\DBAL\Driver\Statement The prepared statement.
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     */
+    public function prepare($statement)
+    {
+        return $this->retryOnServerGoneAway(function () use ($statement) {
+            return parent::prepare($statement);
+        });
+
+    }
+
+    /**
+     * Executes an SQL statement, returning a result set as a Statement object.
+     *
+     * @return \Doctrine\DBAL\Driver\Statement
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     */
+    public function query()
+    {
+        return $this->retryOnServerGoneAway(function () {
+            return parent::query();
+        });
+
+    }
+
+    /**
+     * Executes an SQL INSERT/UPDATE/DELETE query with the given parameters
+     * and returns the number of affected rows.
+     *
+     * This method supports PDO binding types as well as DBAL mapping types.
+     *
+     * @param string $query  The SQL query.
+     * @param array  $params The query parameters.
+     * @param array  $types  The parameter types.
+     *
+     * @return integer The number of affected rows.
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     *
+     * @internal PERF: Directly prepares a driver statement, not a wrapper.
+     */
+    public function executeUpdate($query, array $params = [], array $types = [])
+    {
+        return $this->retryOnServerGoneAway(function () use ($query, $params, $types) {
+            return parent::executeUpdate($query, $params, $types);
+        });
+    }
+
+    /**
+     * Executes an SQL statement and return the number of affected rows.
+     *
+     * @param string $statement
+     *
+     * @return integer The number of affected rows.
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     */
+    public function exec($statement)
+    {
+        return $this->retryOnServerGoneAway(function () use ($statement) {
+            return parent::exec($statement);
+        });
+
+    }
+
+    /**
+     * Fetches the SQLSTATE associated with the last database operation.
+     *
+     * @return integer The last error code.
+     */
+    public function errorCode()
+    {
+        return $this->retryOnServerGoneAway(function () {
+            return parent::errorCode();
+        });
+    }
+
+    /**
+     * Fetches extended error information associated with the last database operation.
+     *
+     * @return array The last error information.
+     */
+    public function errorInfo()
+    {
+        return $this->retryOnServerGoneAway(function () {
+            return parent::errorInfo();
+        });
+    }
+
+    /**
+     * Returns the ID of the last inserted row, or the last value from a sequence object,
+     * depending on the underlying driver.
+     *
+     * Note: This method may not return a meaningful or consistent result across different drivers,
+     * because the underlying database may not even support the notion of AUTO_INCREMENT/IDENTITY
+     * columns or sequences.
+     *
+     * @param string|null $seqName Name of the sequence object from which the ID should be returned.
+     *
+     * @return string A string representation of the last inserted ID.
+     */
+    public function lastInsertId($seqName = null)
+    {
+        return $this->retryOnServerGoneAway(function () use ($seqName) {
+            return parent::lastInsertId($seqName);
+        });
+    }
+
+    /**
+     * Starts a transaction by suspending auto-commit mode.
+     *
+     * @return void
+     */
+    public function beginTransaction()
+    {
+        $this->retryOnServerGoneAway(function () {
+            //TODO: if there was a transaction, there should be a problem
+            parent::beginTransaction();
+        });
+    }
+
+    /**
+     * Commits the current transaction.
+     *
+     * @return void
+     *
+     * @throws \Doctrine\DBAL\ConnectionException If the commit failed due to no active transaction or
+     *                                            because the transaction was marked for rollback only.
+     */
+    public function commit()
+    {
+        parent::commit();
+        //If there is a connection lost during commit, then we won't try it again because everything will be lost
+    }
+
+    /**
+     * Cancels any database changes done during the current transaction.
+     *
+     * This method can be listened with onPreTransactionRollback and onTransactionRollback
+     * eventlistener methods.
+     *
+     * @throws \Doctrine\DBAL\ConnectionException If the rollback operation failed.
+     */
+    public function rollBack()
+    {
+        $this->retryOnServerGoneAway(function () {
+            //TODO: if there was a transaction, there should be a problem
+            parent::rollBack();
+        });
+    }
+}
